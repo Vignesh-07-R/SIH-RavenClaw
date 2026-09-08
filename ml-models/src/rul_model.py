@@ -7,6 +7,7 @@ capped consistently with the faulty units' cap in the generator).
 from pathlib import Path
 
 import joblib
+import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -38,7 +39,7 @@ def train() -> GradientBoostingRegressor:
 def predict(frame_features: dict) -> float:
     bundle = joblib.load(MODEL_PATH)
     model, cols = bundle["model"], bundle["columns"]
-    x = [[frame_features.get(c, 0.0) for c in cols]]
+    x = pd.DataFrame([[frame_features.get(c, 0.0) for c in cols]], columns=cols)
     return float(model.predict(x)[0])
 
 

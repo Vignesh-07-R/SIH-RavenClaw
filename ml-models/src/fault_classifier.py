@@ -7,6 +7,7 @@ feature importances as a first step toward explainability.
 from pathlib import Path
 
 import joblib
+import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
@@ -37,7 +38,7 @@ def train() -> RandomForestClassifier:
 def predict_proba(frame_features: dict) -> dict:
     bundle = joblib.load(MODEL_PATH)
     model, cols = bundle["model"], bundle["columns"]
-    x = [[frame_features.get(c, 0.0) for c in cols]]
+    x = pd.DataFrame([[frame_features.get(c, 0.0) for c in cols]], columns=cols)
     probs = model.predict_proba(x)[0]
     return dict(zip(model.classes_, (float(p) for p in probs)))
 

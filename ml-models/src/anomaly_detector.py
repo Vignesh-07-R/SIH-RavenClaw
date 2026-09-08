@@ -8,6 +8,7 @@ needed at train time, which mirrors a real deployment.
 from pathlib import Path
 
 import joblib
+import pandas as pd
 from sklearn.ensemble import IsolationForest
 
 from features import add_rolling_features, feature_columns, load_dataset
@@ -31,7 +32,7 @@ def score(frame_features: dict) -> dict:
     """frame_features: dict of {column_name: value} matching training columns."""
     bundle = joblib.load(MODEL_PATH)
     model, cols = bundle["model"], bundle["columns"]
-    x = [[frame_features.get(c, 0.0) for c in cols]]
+    x = pd.DataFrame([[frame_features.get(c, 0.0) for c in cols]], columns=cols)
     raw_score = -model.score_samples(x)[0]  # higher = more anomalous
     is_anomalous = model.predict(x)[0] == -1
     return {"is_anomalous": bool(is_anomalous), "score": float(raw_score)}

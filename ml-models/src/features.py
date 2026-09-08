@@ -26,10 +26,10 @@ def add_rolling_features(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
     single instantaneous reading.
     """
     df = df.sort_values(["unit_id", "cycle"]).copy()
-    grouped = df.groupby("unit_id")[SENSOR_COLUMNS]
     for col in SENSOR_COLUMNS:
-        df[f"{col}_roll_mean"] = grouped[col].transform(lambda s: s.rolling(window, min_periods=1).mean())
-        df[f"{col}_roll_std"] = grouped[col].transform(lambda s: s.rolling(window, min_periods=1).std().fillna(0))
+        grouped_col = df.groupby("unit_id")[col]
+        df[f"{col}_roll_mean"] = grouped_col.transform(lambda s: s.rolling(window, min_periods=1).mean())
+        df[f"{col}_roll_std"] = grouped_col.transform(lambda s: s.rolling(window, min_periods=1).std().fillna(0))
     return df
 
 
