@@ -1,0 +1,24 @@
+# Baseline operating parameters — Rotax 912-class engine.
+# Single source of truth for physics_model.py and state_estimator.py.
+# Mirrors data/engine_data_generator.py::BASELINE — if you change one,
+# change both (or better: make the generator read this file instead).
+
+rpm_idle: 1400
+rpm_cruise: 5000
+rpm_max_cont: 5500
+
+cht_normal_c: 110
+cht_max_c: 150
+
+egt_normal_c: 800
+egt_max_c: 900
+
+oil_press_normal_psi: 58
+oil_press_min_psi: 22
+oil_press_max_psi: 72
+
+oil_temp_normal_c: 100
+oil_temp_max_c: 120
+
+fuel_flow_cruise_lph: 15.0
+vibration_normal_g: 0.5
