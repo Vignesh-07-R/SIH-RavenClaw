@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main, twin-core-dev, ml-models-dev, dashboard-dev]
+  pull_request:
+
+jobs:
+  test-twin-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r twin-core/requirements.txt pytest
+      - run: pytest twin-core/tests
+
+  test-ml-models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r ml-models/requirements.txt pytest
+      - run: pytest ml-models/tests
