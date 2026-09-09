@@ -1,38 +1,69 @@
 """
 Real-time telemetry push for twin-core.
 
-api.py's /telemetry/latest only advances when someone GETs it — fine as a
-placeholder, but it means the dashboard has to poll in a loop, and there's
-no way to demo "inject a fault and watch it get caught live" without a
-control channel. This gives you both:
+Runs a live physics simulation (unit_generator.EngineUnitSimulator) rather
+than replaying the static training CSV -- this is the actual "digital
+twin" behavior: a virtual engine advancing in real time, not a recorded
+trace being played back. Two things build on it:
 
   - WebSocket push of one telemetry_frame per second (or --interval),
-    so dashboard just opens a socket and renders whatever arrives.
+    so the dashboard just opens a socket and renders whatever arrives.
   - POST /inject_fault to kick off a live-developing fault mid-stream,
-    using fault_injector.apply_fault instead of relying on the CSV's
-    pre-baked fault_mode column.
+    using fault_injector.apply_fault, independent of any pre-baked
+    fault_mode -- this is what makes "trigger a fault, watch it get
+    caught live" possible in a demo.
 
-Run with: python src/live_stream.py
+Run with: python live_stream.py
 Then:     ws://localhost:8002/ws/telemetry?unit_id=1
-          curl -X POST localhost:8002/inject_fault -d '{"fault_mode": "overheating"}' \\
+          curl -X POST localhost:8002/inject_fault \\
+               -d '{"fault_mode": "overheating", "unit_id": 1}' \\
                -H "Content-Type: application/json"
+
+Note: this previously imported `ingestion` and `state_estimator`, which
+don't exist anywhere in the repo -- this version is self-contained instead,
+built directly on unit_generator.py and ../models/fault_injector.py.
 """
 
 import asyncio
-from typing import Optional
+import sys
+from pathlib import Path
+from typing import Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from fault_injector import FAULT_MODES, apply_fault, reset_drift_state
-from ingestion import csv_stream
-from state_estimator import breach_flags, to_telemetry_frame
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "models"))
+from fault_injector import FAULT_MODES, apply_fault, reset_drift_state  # noqa: E402
+
+from unit_generator import BASELINE, EngineUnitSimulator  # noqa: E402
 
 app = FastAPI(title="twin-core live stream")
 
 PUSH_INTERVAL_SECONDS = 1.0
 FAULT_RAMP_CYCLES = 60  # cycles from injection to full-severity (progress=1.0)
+
+# Matches the "limits" block shape in docs/DATA_CONTRACT.md section 2.
+LIMITS = {
+    "cht_max_c": BASELINE["cht_max_c"],
+    "egt_max_c": BASELINE["egt_max_c"],
+    "oil_press_min_psi": BASELINE["oil_press_min_psi"],
+    "oil_press_max_psi": BASELINE["oil_press_max_psi"],
+    "oil_temp_max_c": BASELINE["oil_temp_max_c"],
+}
+
+
+def breach_flags(frame: dict) -> dict:
+    """Flag sensor readings past the Rotax 912-class limits in config/engine_params.yaml."""
+    sensors = frame["sensors"]
+    limits = frame.get("limits", LIMITS)
+    return {
+        "cht_over": sensors["cht_c"] > limits["cht_max_c"],
+        "egt_over": sensors["egt_c"] > limits["egt_max_c"],
+        "oil_press_low": sensors["oil_press_psi"] < limits["oil_press_min_psi"],
+        "oil_press_high": sensors["oil_press_psi"] > limits["oil_press_max_psi"],
+        "oil_temp_over": sensors["oil_temp_c"] > limits["oil_temp_max_c"],
+    }
 
 
 class _FaultState:
@@ -57,44 +88,58 @@ class _FaultState:
             self.cycles_since_injection += 1
 
 
-_fault_state = _FaultState()
+# One simulator + fault state per connected unit_id, so two dashboard tabs
+# watching different units don't share fault-injection state.
+_simulators: Dict[int, EngineUnitSimulator] = {}
+_fault_states: Dict[int, _FaultState] = {}
+
+
+def _get_or_create(unit_id: int) -> EngineUnitSimulator:
+    if unit_id not in _simulators:
+        _simulators[unit_id] = EngineUnitSimulator(unit_id=unit_id, ambient_c=25.0)
+        _fault_states[unit_id] = _FaultState()
+    return _simulators[unit_id]
 
 
 class InjectFaultRequest(BaseModel):
     fault_mode: str  # one of FAULT_MODES; "none" clears an active fault
+    unit_id: int = 1
 
 
 @app.post("/inject_fault")
 def inject_fault(req: InjectFaultRequest):
-    """Trigger (or clear) a live fault for the next connected stream(s)."""
-    _fault_state.trigger(req.fault_mode)
-    return {"active_mode": _fault_state.active_mode}
+    """Trigger (or clear) a live fault for the given unit's stream."""
+    _get_or_create(req.unit_id)
+    _fault_states[req.unit_id].trigger(req.fault_mode)
+    return {"unit_id": req.unit_id, "active_mode": _fault_states[req.unit_id].active_mode}
 
 
 @app.websocket("/ws/telemetry")
 async def ws_telemetry(websocket: WebSocket, unit_id: int = 1):
     """Push one telemetry_frame per PUSH_INTERVAL_SECONDS until disconnected."""
     await websocket.accept()
-    stream = csv_stream(unit_id=unit_id)
+    simulator = _get_or_create(unit_id)
+    fault_state = _fault_states[unit_id]
     try:
-        for row in stream:
-            frame = to_telemetry_frame(row)
+        while True:
+            frame = simulator.step()
+            frame["limits"] = LIMITS
 
-            if _fault_state.active_mode is not None:
+            if fault_state.active_mode is not None:
                 frame["sensors"] = apply_fault(
-                    _fault_state.active_mode, _fault_state.progress(), frame["sensors"]
+                    fault_state.active_mode, fault_state.progress(), frame["sensors"]
                 )
                 frame["injected_fault"] = {
-                    "mode": _fault_state.active_mode,
-                    "progress": round(_fault_state.progress(), 3),
+                    "mode": fault_state.active_mode,
+                    "progress": round(fault_state.progress(), 3),
                 }
-                _fault_state.tick()
+                fault_state.tick()
 
             frame["breach_flags"] = breach_flags(frame)
             await websocket.send_json(frame)
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
     except WebSocketDisconnect:
-        pass  # client closed the tab — nothing to clean up
+        pass  # client closed the tab -- nothing to clean up
 
 
 if __name__ == "__main__":
