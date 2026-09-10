@@ -35,35 +35,14 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "models"))
 from fault_injector import FAULT_MODES, apply_fault, reset_drift_state  # noqa: E402
+from physics_engine import LIMITS, breach_flags  # noqa: E402
 
-from unit_generator import BASELINE, EngineUnitSimulator  # noqa: E402
+from unit_generator import EngineUnitSimulator  # noqa: E402
 
 app = FastAPI(title="twin-core live stream")
 
 PUSH_INTERVAL_SECONDS = 1.0
 FAULT_RAMP_CYCLES = 60  # cycles from injection to full-severity (progress=1.0)
-
-# Matches the "limits" block shape in docs/DATA_CONTRACT.md section 2.
-LIMITS = {
-    "cht_max_c": BASELINE["cht_max_c"],
-    "egt_max_c": BASELINE["egt_max_c"],
-    "oil_press_min_psi": BASELINE["oil_press_min_psi"],
-    "oil_press_max_psi": BASELINE["oil_press_max_psi"],
-    "oil_temp_max_c": BASELINE["oil_temp_max_c"],
-}
-
-
-def breach_flags(frame: dict) -> dict:
-    """Flag sensor readings past the Rotax 912-class limits in config/engine_params.yaml."""
-    sensors = frame["sensors"]
-    limits = frame.get("limits", LIMITS)
-    return {
-        "cht_over": sensors["cht_c"] > limits["cht_max_c"],
-        "egt_over": sensors["egt_c"] > limits["egt_max_c"],
-        "oil_press_low": sensors["oil_press_psi"] < limits["oil_press_min_psi"],
-        "oil_press_high": sensors["oil_press_psi"] > limits["oil_press_max_psi"],
-        "oil_temp_over": sensors["oil_temp_c"] > limits["oil_temp_max_c"],
-    }
 
 
 class _FaultState:
