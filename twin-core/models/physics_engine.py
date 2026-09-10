@@ -42,6 +42,8 @@ LIMITS = {
     "oil_temp_max_c": BASELINE["oil_temp_max_c"],
 }
 
+PSI_TO_BAR = 0.0689476
+
 
 def physics_informed_readings(rpm: float, ambient_c: float = 25.0) -> Dict[str, float]:
     """
@@ -65,7 +67,56 @@ def physics_informed_readings(rpm: float, ambient_c: float = 25.0) -> Dict[str, 
         "oil_press_psi": BASELINE["oil_press_normal_psi"] - (1 - rpm_frac) * 10,
         "oil_temp_c": 60 + rpm_frac * (BASELINE["oil_temp_normal_c"] - 60),
         "vibration_g": BASELINE["vibration_normal_g"] * (0.5 + 0.5 * rpm_frac),
+        "map_inhg": BASELINE["map_idle_inhg"] + rpm_frac * (BASELINE["map_max_inhg"] - BASELINE["map_idle_inhg"]),
         "ambient_c": ambient_c,
+        # NOTE: there's no independent throttle input in this simplified
+        # model -- the mission profile drives target RPM directly. This
+        # approximates throttle position as the same load fraction that
+        # drives every other sensor, which is backwards from a real engine
+        # (throttle causes RPM, not the reverse) but is a reasonable stand-in
+        # until the simulator models throttle as its own input. Revisit if
+        # Group 3's animation needs throttle to lead RPM rather than track it.
+        "throttle_pct": round(rpm_frac * 100, 1),
+    }
+
+
+def lag_step(previous: float, raw_target: float, alpha: float) -> float:
+    """
+    One step of an exponential (first-order) lag filter:
+        new = alpha * raw_target + (1 - alpha) * previous
+
+    Models thermal inertia -- CHT and oil temperature don't jump
+    instantly to a new equilibrium the way EGT/oil-pressure/vibration
+    effectively do; they climb toward it over many cycles. Lower alpha =
+    slower/heavier response.
+
+    This is intentionally a single stateless step, not a batch/array
+    operation: the caller (EngineUnitSimulator) owns the running lagged
+    value as persistent per-unit state and calls this once per cycle,
+    *after* any fault has been added to raw_target -- a developing fault's
+    heat buildup has the same thermal inertia as normal operation, so it
+    should never bypass the lag by being added after it.
+    """
+    return alpha * raw_target + (1 - alpha) * previous
+
+
+def to_engine_state(sensors: dict) -> Dict[str, float]:
+    """
+    Convert a telemetry_frame's `sensors` dict into the reduced,
+    animation-friendly `engine_state` block the 3D viewer (Group 3) consumes.
+    Different unit choices (bar instead of psi) and field names match what
+    the animation code expects, not the internal sensor schema -- keep this
+    function as the one place that translation happens.
+    """
+    return {
+        "rpm": round(sensors["rpm"], 1),
+        "throttle": round(sensors.get("throttle_pct", 0.0), 1),
+        "egt_c": round(sensors["egt_c"], 1),
+        "cht_c": round(sensors["cht_c"], 1),
+        "oil_pressure_bar": round(sensors["oil_press_psi"] * PSI_TO_BAR, 2),
+        "oil_temperature_c": round(sensors["oil_temp_c"], 1),
+        "fuel_flow_lph": round(sensors["fuel_flow_lph"], 2),
+        "vibration_g": round(sensors["vibration_g"], 3),
     }
 
 

@@ -22,3 +22,14 @@ oil_temp_max_c: 120
 
 fuel_flow_cruise_lph: 15.0
 vibration_normal_g: 0.5
+
+# Manifold Absolute Pressure -- load-estimation sensor, added for parity
+# with data/engine_data_generator.py's map_inhg field.
+map_idle_inhg: 12.0
+map_max_inhg: 28.0
+
+# Thermal lag coefficients (exponential smoothing, 0 < alpha <= 1; lower =
+# slower/heavier thermal response). Only cht_c and oil_temp_c get this --
+# everything else reacts to RPM changes fast enough to treat as instantaneous.
+cht_thermal_alpha: 0.03
+oil_temp_thermal_alpha: 0.02
