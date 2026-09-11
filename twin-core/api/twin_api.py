@@ -24,7 +24,7 @@ import uvicorn
 from fastapi import FastAPI
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "models"))
-from physics_engine import LIMITS, breach_flags  # noqa: E402
+from physics_engine import LIMITS, breach_flags, to_engine_state  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "simulator"))
 from unit_generator import EngineUnitSimulator  # noqa: E402
@@ -48,8 +48,10 @@ def latest(unit_id: int = 1):
     """Return the next telemetry_frame for this unit (advances one cycle per call)."""
     simulator = _get_or_create(unit_id)
     frame = simulator.step()
+    frame["sensors"] = simulator.apply_thermal_lag(frame["sensors"])
     frame["limits"] = LIMITS
     frame["breach_flags"] = breach_flags(frame)
+    frame["engine_state"] = to_engine_state(frame["sensors"])
     return frame
 
 

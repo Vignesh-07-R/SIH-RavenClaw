@@ -54,8 +54,32 @@ def test_sensor_drift_direction_stable_across_calls_until_reset():
     reset_drift_state()
     first = apply_fault("sensor_drift", 0.5, HEALTHY_SENSORS)
     second = apply_fault("sensor_drift", 0.5, HEALTHY_SENSORS)
-    # same progress, same coin-flip outcome -> identical result until reset
-    assert first["egt_c"] == second["egt_c"]
+    # same progress, same sensor pick -> identical result until reset
+    assert first == second
+    reset_drift_state()
+
+
+def test_sensor_drift_picks_exactly_one_sensor():
+    reset_drift_state()
+    result = apply_fault("sensor_drift", 1.0, HEALTHY_SENSORS)
+    changed = [k for k in HEALTHY_SENSORS if result[k] != HEALTHY_SENSORS[k]]
+    assert len(changed) == 1
+    assert changed[0] in ("egt_c", "cht_c", "oil_press_psi")
+    reset_drift_state()
+
+
+def test_sensor_drift_can_select_each_of_three_sensors():
+    # not a strict distribution test -- just confirms all three are reachable,
+    # by resetting + sampling enough times that seeing only one would be
+    # a ~(1/3)^30 coincidence
+    seen = set()
+    for _ in range(30):
+        reset_drift_state()
+        result = apply_fault("sensor_drift", 1.0, HEALTHY_SENSORS)
+        for k in ("egt_c", "cht_c", "oil_press_psi"):
+            if result[k] != HEALTHY_SENSORS[k]:
+                seen.add(k)
+    assert seen == {"egt_c", "cht_c", "oil_press_psi"}
     reset_drift_state()
 
 

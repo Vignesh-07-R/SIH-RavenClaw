@@ -45,13 +45,20 @@ def apply_fault(fault_mode: str, progress: float, sensors: dict) -> dict:
         s["oil_temp_c"] = s["oil_temp_c"] + progress * 25
 
     elif fault_mode == "sensor_drift":
-        # one sensor silently biases high — same 50/50 coin flip as the
-        # generator, but resolved once per injected fault, not per frame,
-        # so the drift direction stays consistent across the mission
-        if not hasattr(apply_fault, "_drift_active"):
-            apply_fault._drift_active = random.random() > 0.5
-        if apply_fault._drift_active:
+        # one sensor silently biases high -- which sensor is resolved once
+        # per injected fault (not per frame), so the drift stays on the same
+        # channel for the whole mission until reset_drift_state() is called.
+        # Picking from three plausible sensors (rather than only ever EGT)
+        # matches data/engine_data_generator.py's sensor_drift fault.
+        if not hasattr(apply_fault, "_drift_sensor"):
+            apply_fault._drift_sensor = random.choice(["egt_c", "cht_c", "oil_press_psi"])
+        drift_sensor = apply_fault._drift_sensor
+        if drift_sensor == "egt_c":
             s["egt_c"] = s["egt_c"] + progress * 80
+        elif drift_sensor == "cht_c":
+            s["cht_c"] = s["cht_c"] + progress * 30
+        elif drift_sensor == "oil_press_psi":
+            s["oil_press_psi"] = s["oil_press_psi"] + progress * 20
 
     # fault_mode == "none": no change
 
@@ -60,9 +67,9 @@ def apply_fault(fault_mode: str, progress: float, sensors: dict) -> dict:
 
 def reset_drift_state() -> None:
     """Call this when starting a fresh mission/demo so sensor_drift's
-    coin-flip re-randomizes instead of reusing the last run's direction."""
-    if hasattr(apply_fault, "_drift_active"):
-        del apply_fault._drift_active
+    sensor choice re-randomizes instead of reusing the last run's pick."""
+    if hasattr(apply_fault, "_drift_sensor"):
+        del apply_fault._drift_sensor
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ def generate_unit_dataframe(unit_id: int, fault_mode: str = "none",
         if fault_mode != "none" and frame["cycle"] >= onset:
             progress = min((frame["cycle"] - onset) / max(n_cycles - onset, 1), 1.0)
         sensors = apply_fault(fault_mode, progress, frame["sensors"])
+        sensors = sim.apply_thermal_lag(sensors)  # after fault: heat buildup has inertia too
 
         rul = RUL_CAP if fault_mode == "none" else min(n_cycles - frame["cycle"], RUL_CAP)
         rows.append({

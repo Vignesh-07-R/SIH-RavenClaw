@@ -35,7 +35,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "models"))
 from fault_injector import FAULT_MODES, apply_fault, reset_drift_state  # noqa: E402
-from physics_engine import LIMITS, breach_flags  # noqa: E402
+from physics_engine import LIMITS, breach_flags, to_engine_state  # noqa: E402
 
 from unit_generator import EngineUnitSimulator  # noqa: E402
 
@@ -114,7 +114,13 @@ async def ws_telemetry(websocket: WebSocket, unit_id: int = 1):
                 }
                 fault_state.tick()
 
+            # always applied, healthy or faulty -- lag is part of normal
+            # engine behavior, and any fault's heat buildup needs the same
+            # inertia rather than jumping instantly
+            frame["sensors"] = simulator.apply_thermal_lag(frame["sensors"])
+
             frame["breach_flags"] = breach_flags(frame)
+            frame["engine_state"] = to_engine_state(frame["sensors"])
             await websocket.send_json(frame)
             await asyncio.sleep(PUSH_INTERVAL_SECONDS)
     except WebSocketDisconnect:

@@ -4,7 +4,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "models"))
 
 from mission_profile import MISSION_PROFILE, build_rpm_and_phase_trace  # noqa: E402
-from physics_engine import BASELINE, breach_flags, physics_informed_readings  # noqa: E402
+from physics_engine import (  # noqa: E402
+    BASELINE, breach_flags, physics_informed_readings, to_engine_state,
+)
 
 
 def test_physics_informed_readings_at_idle():
@@ -67,3 +69,40 @@ def test_breach_flags_uses_module_default_limits_when_omitted():
     healthy_frame = {"sensors": physics_informed_readings(BASELINE["rpm_cruise"], 25.0)}
     flags = breach_flags(healthy_frame)
     assert not any(flags.values())
+
+
+def test_physics_informed_readings_includes_throttle_pct():
+    idle = physics_informed_readings(BASELINE["rpm_idle"], 25.0)
+    cruise = physics_informed_readings(BASELINE["rpm_max_cont"], 25.0)
+    assert idle["throttle_pct"] == 0.0
+    assert cruise["throttle_pct"] == 100.0
+
+
+def test_to_engine_state_converts_units_and_renames_fields():
+    sensors = physics_informed_readings(BASELINE["rpm_cruise"], 25.0)
+    state = to_engine_state(sensors)
+    assert set(state) == {
+        "rpm", "throttle", "egt_c", "cht_c",
+        "oil_pressure_bar", "oil_temperature_c", "fuel_flow_lph", "vibration_g",
+    }
+    # oil_press_psi -> oil_pressure_bar: 1 psi = 0.0689476 bar
+    expected_bar = round(sensors["oil_press_psi"] * 0.0689476, 2)
+    assert state["oil_pressure_bar"] == expected_bar
+    assert state["throttle"] == sensors["throttle_pct"]
+
+
+def test_to_engine_state_defaults_throttle_when_missing():
+    sensors = {
+        "rpm": 5000.0, "egt_c": 800.0, "cht_c": 110.0,
+        "oil_press_psi": 58.0, "oil_temp_c": 100.0, "fuel_flow_lph": 15.0, "vibration_g": 0.5,
+    }
+    state = to_engine_state(sensors)
+    assert state["throttle"] == 0.0
+
+
+def test_physics_informed_readings_includes_map_inhg():
+    idle = physics_informed_readings(BASELINE["rpm_idle"], 25.0)
+    cruise = physics_informed_readings(BASELINE["rpm_max_cont"], 25.0)
+    assert idle["map_inhg"] == BASELINE["map_idle_inhg"]
+    assert cruise["map_inhg"] == BASELINE["map_max_inhg"]
+    assert idle["map_inhg"] < cruise["map_inhg"]
